@@ -313,24 +313,42 @@ class FundSnapshotService:
 
         start_time = datetime.utcnow() - timedelta(days=days)
         
-        # 按日期分组统计
+        # 口径说明：每只基金每天只取“当天最后一条快照”（最新一次刷新结果），
+        # 再对当天所有持仓求和，避免同一天多次刷新导致重复累计。
         from sqlalchemy import func
-        
-        daily_stats = db.session.query(
-            func.date(FundSnapshot.snapshot_time).label('date'),
-            func.sum(FundSnapshot.profit).label('total_profit'),
-            func.sum(FundSnapshot.amount).label('total_amount')
+
+        day_col = func.date(FundSnapshot.snapshot_time)
+        latest_per_code_day = db.session.query(
+            FundSnapshot.code.label('code'),
+            day_col.label('day'),
+            func.max(FundSnapshot.snapshot_time).label('max_time')
         ).filter(
             FundSnapshot.snapshot_time >= start_time,
             FundSnapshot.code.in_(holding_codes)
         ).group_by(
-            func.date(FundSnapshot.snapshot_time)
+            FundSnapshot.code,
+            day_col
+        ).subquery()
+
+        latest_rows = db.session.query(FundSnapshot).join(
+            latest_per_code_day,
+            (FundSnapshot.code == latest_per_code_day.c.code) &
+            (FundSnapshot.snapshot_time == latest_per_code_day.c.max_time)
+        ).subquery()
+
+        daily_stats = db.session.query(
+            latest_rows.c.snapshot_time,
+            func.date(latest_rows.c.snapshot_time).label('date'),
+            func.sum(latest_rows.c.profit).label('total_profit'),
+            func.sum(latest_rows.c.amount).label('total_amount')
+        ).group_by(
+            func.date(latest_rows.c.snapshot_time)
         ).order_by(
-            func.date(FundSnapshot.snapshot_time)
+            func.date(latest_rows.c.snapshot_time)
         ).all()
-        
+
         return [{
             'date': str(stat.date),
-            'profit': stat.total_profit,
-            'amount': stat.total_amount
+            'profit': float(stat.total_profit or 0),
+            'amount': float(stat.total_amount or 0)
         } for stat in daily_stats]

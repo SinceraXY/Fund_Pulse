@@ -1,0 +1,12 @@
+# 基金实盘波动监控工具依赖
+
+# Web框架
+Flask>=2.3.0
+Flask-SQLAlchemy>=3.0.0
+Flask-Migrate>=4.0.0
+
+# 数据库
+SQLAlchemy>=2.0.0
+
+# WSGI服务器（生产环境）
+gunicorn>=21.0.0
